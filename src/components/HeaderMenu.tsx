@@ -335,7 +335,7 @@ export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpen
                     <MoreHorizontal size={22} />
                     {snoozedCount > 0 && (
                         <span
-                            className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-4 tabular-nums"
+                            className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-4 tabular-nums text-center"
                             aria-label={`${snoozedCount} deferred tasks`}
                         >
                             {snoozedCount > 99 ? '99+' : snoozedCount}
@@ -399,7 +399,7 @@ export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpen
                                         <Clock size={16} className="text-gray-500 dark:text-gray-400" />
                                         <span className="flex-1">Deferred</span>
                                         {snoozedCount > 0 && (
-                                            <span className="min-w-6 h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold leading-5 tabular-nums">
+                                            <span className="min-w-6 h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold leading-5 tabular-nums text-center">
                                                 {snoozedCount > 99 ? '99+' : snoozedCount}
                                             </span>
                                         )}
