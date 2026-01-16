@@ -18,6 +18,7 @@ import {
 } from './store/storage';
 import { QueueBar } from './components/QueueBar';
 import { useToastStore } from './store/useToastStore';
+import { HelpFab } from './components/HelpFab';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -224,6 +225,7 @@ function App() {
         <SnoozedTasksPanel isOpen={deferredOpen} onClose={() => setDeferredOpen(false)} />
         <AllTasksPanel isOpen={allTasksOpen} onClose={() => setAllTasksOpen(false)} />
       </div>
+      <HelpFab />
       <ToastHost />
     </div>
   );
