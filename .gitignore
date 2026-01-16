@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Some dev environments ignore `lib/` globally; ensure this app's utilities are trackable.
+!src/lib/
+!src/lib/utils.ts
+
+# Commit lockfile even if ignored globally.
+!package-lock.json
