@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, Reorder, useDragControls, useReducedMotion } from 'framer-motion';
 import { Clock, GripVertical, MoreHorizontal, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { cn } from '../lib/utils';
 import { useStore } from '../store/useStore';
 import type { Task, TaskId } from '../types';
@@ -19,6 +20,19 @@ type TaskMenuEntry =
           disabled?: boolean;
       }
     | { kind: 'divider' };
+
+const MENU_GAP_PX = 8;
+
+function findOverflowBoundary(element: HTMLElement | null): HTMLElement {
+    let node: HTMLElement | null = element;
+    while (node) {
+        const style = window.getComputedStyle(node);
+        const overflowY = style.overflowY;
+        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') return node;
+        node = node.parentElement;
+    }
+    return document.documentElement;
+}
 
 function formatRemaining(nowMs: number, untilMs: number) {
     const remainingSeconds = Math.max(0, Math.ceil((untilMs - nowMs) / 1000));
@@ -77,6 +91,8 @@ function TaskRowMenu({
     entries: TaskMenuEntry[];
 }) {
     const [open, setOpen] = useState(false);
+    const [placement, setPlacement] = useState<'top' | 'bottom'>('bottom');
+    const [maxHeight, setMaxHeight] = useState<number | undefined>(undefined);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -106,7 +122,36 @@ function TaskRowMenu({
                 type="button"
                 onClick={(e) => {
                     e.stopPropagation();
-                    setOpen((value) => !value);
+                    if (open) {
+                        setOpen(false);
+                        return;
+                    }
+
+                    const triggerEl = triggerRef.current;
+                    if (!triggerEl) {
+                        setOpen(true);
+                        return;
+                    }
+
+                    const boundaryEl = findOverflowBoundary(triggerEl);
+                    const boundaryRect = boundaryEl.getBoundingClientRect();
+                    const triggerRect = triggerEl.getBoundingClientRect();
+
+                    flushSync(() => setOpen(true));
+
+                    const menuEl = menuRef.current;
+                    if (!menuEl) return;
+
+                    const menuHeight = menuEl.scrollHeight;
+                    const spaceBelow = boundaryRect.bottom - triggerRect.bottom;
+                    const spaceAbove = triggerRect.top - boundaryRect.top;
+                    const shouldFlip = spaceBelow < menuHeight + MENU_GAP_PX && spaceAbove > spaceBelow;
+                    const nextPlacement: 'top' | 'bottom' = shouldFlip ? 'top' : 'bottom';
+                    const availableSpace = (nextPlacement === 'top' ? spaceAbove : spaceBelow) - MENU_GAP_PX;
+                    const nextMaxHeight = availableSpace > 0 ? Math.floor(availableSpace) : undefined;
+
+                    setPlacement(nextPlacement);
+                    setMaxHeight(nextMaxHeight);
                 }}
                 className={cn(
                     'p-2 rounded-xl transition-colors',
@@ -126,11 +171,13 @@ function TaskRowMenu({
                     role="menu"
                     aria-label="Task actions"
                     className={cn(
-                        'absolute right-0 mt-2 w-44 overflow-hidden rounded-2xl z-[70]',
+                        'absolute right-0 w-44 overflow-hidden overflow-y-auto rounded-2xl z-[70]',
+                        placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
                         'bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl',
                         'shadow-2xl',
                         'border border-black/10 dark:border-white/10'
                     )}
+                    style={maxHeight ? { maxHeight } : undefined}
                 >
                     {entries.map((entry, index) => {
                         if (entry.kind === 'divider') {
