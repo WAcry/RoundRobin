@@ -104,8 +104,12 @@ export function QueueBar() {
             </div>
 
             <div className="relative min-w-0 flex-1">
-                <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-gray-50 dark:from-gray-900 to-transparent" />
-                <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-gray-50 dark:from-gray-900 to-transparent" />
+                {hasAny && (
+                    <>
+                        <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-gray-50 dark:from-gray-900 to-transparent" />
+                        <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-gray-50 dark:from-gray-900 to-transparent" />
+                    </>
+                )}
 
                 {!hasAny ? (
                     <div className="py-1 text-xs text-gray-400 dark:text-gray-500 truncate">No queued tasks</div>
