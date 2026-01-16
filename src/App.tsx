@@ -5,7 +5,7 @@ import { SnoozedTasksPanel } from './components/SnoozedTasksPanel';
 import { AllTasksPanel } from './components/AllTasksPanel';
 import { HeaderMenu } from './components/HeaderMenu';
 import { getNextWriteMeta, noteExternalRevision, useStore } from './store/useStore';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ToastHost } from './components/ToastHost';
 import type { AppState } from './types';
 import {
@@ -51,6 +51,7 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
   const [allTasksOpen, setAllTasksOpen] = useState(false);
+  const taskInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -185,6 +186,31 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.repeat) return;
+      if (e.isComposing) return;
+
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!(e.code === 'Space' || e.key === ' ')) return;
+
+      if (isEditableTarget(e.target)) return;
+      if (historyOpen || deferredOpen || allTasksOpen) return;
+
+      const input = taskInputRef.current;
+      if (!input) return;
+      if (document.activeElement === input) return;
+
+      e.preventDefault();
+      input.focus({ preventScroll: true });
+    };
+
+    // Capture so we can prevent page scroll / button activation before default actions fire.
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [allTasksOpen, deferredOpen, historyOpen]);
+
   return (
     <div className="min-h-screen w-full bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-100 dark:selection:bg-blue-900 overflow-x-hidden">
       <div className="container mx-auto px-4 py-8 h-screen flex flex-col max-w-2xl relative">
@@ -213,7 +239,7 @@ function App() {
         </header>
 
         <main className="flex-1 flex flex-col justify-center pb-28 sm:pb-20">
-          <TaskInput />
+          <TaskInput ref={taskInputRef} />
           <TaskCard onOpenDeferredTasks={() => setDeferredOpen(true)} />
         </main>
 
