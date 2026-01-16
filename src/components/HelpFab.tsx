@@ -5,7 +5,11 @@ import { cn } from '../lib/utils';
 const HELP_TIPS = [
   {
     title: 'Undo/redo',
-    detail: 'Press Ctrl+Z (or Cmd+Z) to undo. Ctrl+Shift+Z or Ctrl+Y to redo.',
+    detail: 'Press Ctrl+Z (or Cmd+Z) to undo.',
+  },
+  {
+    title: 'Focus input',
+    detail: "Press Space to focus the new task input.",
   },
   {
     title: 'Quick defer',
@@ -95,8 +99,7 @@ export function HelpFab() {
         id={panelId}
       >
         <div className="px-4 pt-4 pb-2">
-          <p className="text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500">Quick help</p>
-          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Shortcuts & gestures</h3>
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Shortcuts</h3>
         </div>
         <div className="px-4 pb-4 space-y-3 text-sm text-gray-600 dark:text-gray-300">
           {HELP_TIPS.map((tip) => (

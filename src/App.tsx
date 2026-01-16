@@ -8,6 +8,8 @@ import { getNextWriteMeta, noteExternalRevision, useStore } from './store/useSto
 import { useEffect, useRef, useState } from 'react';
 import { ToastHost } from './components/ToastHost';
 import type { AppState } from './types';
+import { isEditableTarget } from './lib/dom';
+import { startFirebaseBootstrap } from './lib/firebaseBootstrap';
 import {
   discardPendingPersistedState,
   flushPersistedState,
@@ -36,14 +38,6 @@ function parsePersistedAppState(raw: string | null): AppState | null {
   }
 }
 
-function isEditableTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target instanceof HTMLInputElement) return true;
-  if (target instanceof HTMLTextAreaElement) return true;
-  if (target instanceof HTMLSelectElement) return true;
-  return target.isContentEditable;
-}
-
 function App() {
   const tick = useStore((state) => state.tick);
   const snoozedCount = useStore((state) => state.snoozedIds.length);
@@ -52,6 +46,28 @@ function App() {
   const [deferredOpen, setDeferredOpen] = useState(false);
   const [allTasksOpen, setAllTasksOpen] = useState(false);
   const taskInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    let stop: (() => void) | null = null;
+
+    void startFirebaseBootstrap()
+      .then((cleanup) => {
+      if (!mounted) {
+        cleanup();
+        return;
+      }
+      stop = cleanup;
+      })
+      .catch(() => {
+        // Firebase is optional; keep the app local-first if it fails to initialize.
+      });
+
+    return () => {
+      mounted = false;
+      stop?.();
+    };
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {

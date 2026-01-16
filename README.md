@@ -2,7 +2,7 @@
 
 A single-task, round-robin scheduler for your todos. It keeps your attention on **one** current task while everything else waits in a fair ring queue.
 
-Try it now: https://to-do-or-not.vercel.app/
+Try it now: [to-do-or-not.vercel.app](https://to-do-or-not.vercel.app/)
 
 <!-- Limit screenshot display size -->
 <p align="center">
@@ -17,6 +17,7 @@ Try it now: https://to-do-or-not.vercel.app/
 - Subtasks + Markdown notes per task
 - Undo/redo (Ctrl/Cmd+Z)
 - Local-first: persists in `localStorage` + JSON export/import
+- Optional: Google sign-in + cloud sync (Firebase Auth + Firestore)
 
 ## Core model
 
@@ -41,4 +42,5 @@ npm run preview
 
 ## Data & privacy
 
-All data stays in your browser. Storage key: `roundrobin.state.v1`.
+By default, all data stays in your browser.
+If you sign in with Google, the app will also sync your data to the cloud.

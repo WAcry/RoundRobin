@@ -1,10 +1,31 @@
-import { Check, ChevronLeft, ChevronRight, Clock, Download, History, ListTodo, Monitor, Moon, MoreHorizontal, Sun, Upload } from 'lucide-react';
+import {
+    Check,
+    ChevronLeft,
+    ChevronRight,
+    Clock,
+    Cloud,
+    CloudOff,
+    Download,
+    History,
+    ListTodo,
+    LogIn,
+    LogOut,
+    Monitor,
+    Moon,
+    MoreHorizontal,
+    Sun,
+    Upload,
+    User,
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { cn } from '../lib/utils';
 import { applyThemeMode, getThemeMode, setThemeMode, THEME_STORAGE_KEY, type ThemeMode } from '../lib/theme';
+import { normalizeAppState } from '../lib/state/normalizeAppState';
+import { useAuthStore } from '../store/useAuthStore';
+import { useSyncStore } from '../store/useSyncStore';
 import { useToastStore } from '../store/useToastStore';
 import { getNextWriteMeta, noteExternalRevision, useStore } from '../store/useStore';
-import type { AppState, Task, TaskId } from '../types';
+import type { AppState } from '../types';
 
 interface HeaderMenuProps {
     snoozedCount: number;
@@ -21,160 +42,6 @@ type ThemeOption = {
     icon: ReactNode;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function uniqueIds(ids: TaskId[]): TaskId[] {
-    const seen = new Set<TaskId>();
-    const out: TaskId[] = [];
-    ids.forEach((id) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        out.push(id);
-    });
-    return out;
-}
-
-function normalizeImportedState(raw: unknown): AppState {
-    const root = isRecord(raw) ? raw : null;
-    const candidate = root && isRecord(root.state) ? root.state : root;
-    if (!isRecord(candidate)) throw new Error('Invalid import file.');
-
-    const tasksRaw = candidate.tasks;
-    if (!isRecord(tasksRaw)) throw new Error('Invalid import file: missing tasks.');
-
-    const now = Date.now();
-
-    const normalizedTasks: Record<TaskId, Task> = {};
-    Object.entries(tasksRaw).forEach(([id, value]) => {
-        if (!isRecord(value)) throw new Error(`Invalid task: ${id}`);
-
-        const title = typeof value.title === 'string' ? value.title.trim() : '';
-        if (!title) throw new Error(`Invalid task title: ${id}`);
-
-        const createdAt = typeof value.createdAt === 'number' ? value.createdAt : now;
-        const updatedAt = typeof value.updatedAt === 'number' ? value.updatedAt : createdAt;
-        const doneAt = typeof value.doneAt === 'number' ? value.doneAt : undefined;
-
-        const subtasksRaw = Array.isArray(value.subtasks) ? value.subtasks : [];
-        const subtasks = subtasksRaw.map((st, idx) => {
-            if (!isRecord(st)) throw new Error(`Invalid subtask: ${id}[${idx}]`);
-            return {
-                id: typeof st.id === 'string' ? st.id : crypto.randomUUID(),
-                text: typeof st.text === 'string' ? st.text : '',
-                done: typeof st.done === 'boolean' ? st.done : false,
-                createdAt: typeof st.createdAt === 'number' ? st.createdAt : now,
-                doneAt: typeof st.doneAt === 'number' ? st.doneAt : undefined,
-            };
-        });
-
-        const uiRaw = isRecord(value.ui) ? value.ui : {};
-        const ui = {
-            subtasksOpen: typeof uiRaw.subtasksOpen === 'boolean' ? uiRaw.subtasksOpen : false,
-            notesOpen: typeof uiRaw.notesOpen === 'boolean' ? uiRaw.notesOpen : false,
-            showCompletedSubtasks: typeof uiRaw.showCompletedSubtasks === 'boolean' ? uiRaw.showCompletedSubtasks : false,
-        };
-
-        const snoozeUntil = typeof value.snoozeUntil === 'number' ? value.snoozeUntil : undefined;
-        const snoozeSeq = typeof value.snoozeSeq === 'number' ? value.snoozeSeq : undefined;
-        const notesMd = typeof value.notesMd === 'string' ? value.notesMd : '';
-
-        normalizedTasks[id] = {
-            id,
-            title,
-            createdAt,
-            updatedAt,
-            doneAt,
-            subtasks,
-            notesMd,
-            ui,
-            snoozeUntil,
-            snoozeSeq,
-        };
-    });
-
-    const allIds = new Set<TaskId>(Object.keys(normalizedTasks));
-    const filterIds = (value: unknown, label: string) => {
-        if (value == null) return [];
-        if (!Array.isArray(value) || !value.every((x) => typeof x === 'string')) throw new Error(`Invalid ${label}.`);
-        return value.filter((id) => allIds.has(id));
-    };
-
-    const rev = typeof candidate.rev === 'number' && Number.isFinite(candidate.rev) ? Math.max(0, Math.floor(candidate.rev)) : 0;
-    const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : now;
-    const clientId =
-        typeof candidate.clientId === 'string' && candidate.clientId.trim().length > 0 ? candidate.clientId : crypto.randomUUID();
-
-    const version = Math.max(2, typeof candidate.version === 'number' ? candidate.version : 1);
-    let currentTaskId: TaskId | null = candidate.currentTaskId == null ? null : (candidate.currentTaskId as TaskId);
-    if (currentTaskId !== null && typeof currentTaskId !== 'string') throw new Error('Invalid currentTaskId.');
-    if (currentTaskId !== null && !allIds.has(currentTaskId)) currentTaskId = null;
-
-    let wokenQueue = uniqueIds(filterIds(candidate.wokenQueue, 'wokenQueue')).filter((id) => id !== currentTaskId);
-    let readyQueue = uniqueIds(filterIds(candidate.readyQueue, 'readyQueue')).filter((id) => id !== currentTaskId);
-
-    const computedSnoozed = Object.keys(normalizedTasks).filter((id) => typeof normalizedTasks[id]?.snoozeUntil === 'number');
-    const importedSnoozed = uniqueIds(filterIds(candidate.snoozedIds, 'snoozedIds')).filter(
-        (id) => typeof normalizedTasks[id]?.snoozeUntil === 'number'
-    );
-    const snoozedIds = [...importedSnoozed, ...computedSnoozed.filter((id) => !importedSnoozed.includes(id))].filter(
-        (id) => id !== currentTaskId
-    );
-
-    const completedIds = uniqueIds(filterIds(candidate.completedIds, 'completedIds')).filter((id) => id !== currentTaskId);
-
-    let maxSeq = 0;
-    Object.values(normalizedTasks).forEach((task) => {
-        if (!task || typeof task.snoozeSeq !== 'number' || !Number.isFinite(task.snoozeSeq)) return;
-        task.snoozeSeq = Math.floor(task.snoozeSeq);
-        maxSeq = Math.max(maxSeq, task.snoozeSeq);
-    });
-    snoozedIds.forEach((id) => {
-        const task = normalizedTasks[id];
-        if (!task || typeof task.snoozeUntil !== 'number') return;
-        if (typeof task.snoozeSeq === 'number' && Number.isFinite(task.snoozeSeq)) return;
-        maxSeq += 1;
-        task.snoozeSeq = maxSeq;
-    });
-
-    wokenQueue = wokenQueue.filter((id) => !snoozedIds.includes(id) && !completedIds.includes(id));
-    readyQueue = readyQueue.filter((id) => !wokenQueue.includes(id) && !snoozedIds.includes(id) && !completedIds.includes(id));
-
-    if (!currentTaskId) {
-        if (wokenQueue.length > 0) {
-            currentTaskId = wokenQueue[0];
-            wokenQueue = wokenQueue.slice(1);
-        } else if (readyQueue.length > 0) {
-            currentTaskId = readyQueue[0];
-            readyQueue = readyQueue.slice(1);
-        }
-    }
-
-    const nextSnoozeSeq = (() => {
-        const candidateSeq = candidate.nextSnoozeSeq;
-        if (typeof candidateSeq === 'number' && Number.isFinite(candidateSeq) && candidateSeq > 0) {
-            const normalized = Math.floor(candidateSeq);
-            return normalized <= maxSeq ? maxSeq + 1 : normalized;
-        }
-        return maxSeq + 1;
-    })();
-
-    return {
-        rev,
-        updatedAt,
-        clientId,
-        version,
-        currentTaskId,
-        wokenQueue,
-        readyQueue,
-        snoozedIds,
-        completedIds,
-        tasks: normalizedTasks,
-        nextSnoozeSeq,
-    };
-}
-
 function formatThemeLabel(mode: ThemeMode) {
     switch (mode) {
         case 'light':
@@ -186,8 +53,19 @@ function formatThemeLabel(mode: ThemeMode) {
     }
 }
 
+function formatUserLabel(user: { displayName?: string | null; email?: string | null }) {
+    const name = typeof user.displayName === 'string' ? user.displayName.trim() : '';
+    if (name) return name;
+    const email = typeof user.email === 'string' ? user.email.trim() : '';
+    if (email) return email;
+    return 'Google user';
+}
+
 export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpenAllTasks }: HeaderMenuProps) {
     const pushToast = useToastStore((state) => state.pushToast);
+    const user = useAuthStore((state) => state.user);
+    const syncPhase = useSyncStore((state) => state.phase);
+    const lastSyncedAt = useSyncStore((state) => state.lastSyncedAt);
     const importInputRef = useRef<HTMLInputElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const menuRef = useRef<HTMLDivElement | null>(null);
@@ -283,7 +161,7 @@ export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpen
     const handleImportFile = async (file: File) => {
         const text = await file.text();
         const raw = JSON.parse(text) as unknown;
-        const imported = normalizeImportedState(raw);
+        const imported = normalizeAppState(raw);
 
         noteExternalRevision(imported.rev);
         const current = useStore.getState();
@@ -299,6 +177,34 @@ export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpen
 
         useStore.temporal.getState().clear();
         pushToast({ kind: 'success', message: 'Imported JSON.' });
+    };
+
+    const handleSignIn = async () => {
+        try {
+            const { signInWithGoogle } = await import('../lib/firebaseAuth');
+            const outcome = await signInWithGoogle();
+            if (outcome.method === 'redirect') {
+                pushToast({ kind: 'info', message: 'Redirecting to Google…' });
+                return;
+            }
+            pushToast({ kind: 'success', message: 'Signed in.' });
+        } catch (err) {
+            const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: unknown }).code : null;
+            if (code === 'auth/popup-closed-by-user') return;
+            const message = err instanceof Error ? err.message : 'Sign-in failed.';
+            pushToast({ kind: 'error', message });
+        }
+    };
+
+    const handleSignOut = async () => {
+        try {
+            const { signOutFromFirebase } = await import('../lib/firebaseAuth');
+            await signOutFromFirebase();
+            pushToast({ kind: 'success', message: 'Signed out.' });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Sign-out failed.';
+            pushToast({ kind: 'error', message });
+        }
     };
 
     const menuTitle = (() => {
@@ -440,6 +346,85 @@ export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpen
                                         <ListTodo size={16} className="text-gray-500 dark:text-gray-400" />
                                         <span className="flex-1">All tasks</span>
                                     </button>
+
+                                    <div className="my-1 h-px bg-black/10 dark:bg-white/10" />
+
+                                    {!user && (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => {
+                                                closeMenu();
+                                                void handleSignIn();
+                                            }}
+                                            className={cn(
+                                                'w-full px-3 py-2.5 flex items-center gap-2 rounded-xl text-left text-sm font-medium',
+                                                'text-gray-800 dark:text-gray-100',
+                                                'hover:bg-black/5 dark:hover:bg-white/10',
+                                                'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60'
+                                            )}
+                                        >
+                                            <LogIn size={16} className="text-gray-500 dark:text-gray-400" />
+                                            <span className="flex-1">Sign in with Google</span>
+                                        </button>
+                                    )}
+
+                                    {user && (
+                                        <div
+                                            className={cn(
+                                                'px-3 py-2.5 rounded-xl',
+                                                'text-gray-700 dark:text-gray-200',
+                                                'bg-black/5 dark:bg-white/10'
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2 text-sm font-medium">
+                                                <User size={16} className="text-gray-500 dark:text-gray-400" />
+                                                <span className="flex-1 truncate">{formatUserLabel(user)}</span>
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                                                {syncPhase === 'live' || syncPhase === 'connecting' ? (
+                                                    <Cloud size={14} />
+                                                ) : (
+                                                    <CloudOff size={14} />
+                                                )}
+                                                <span className="flex-1">
+                                                    Cloud sync:{' '}
+                                                    {syncPhase === 'connecting'
+                                                        ? 'Syncing…'
+                                                        : syncPhase === 'live'
+                                                          ? 'Synced'
+                                                          : syncPhase === 'error'
+                                                            ? 'Error'
+                                                            : 'Off'}
+                                                </span>
+                                                {lastSyncedAt && (
+                                                    <span className="tabular-nums text-[10px]">
+                                                        {new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {user && (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            onClick={() => {
+                                                closeMenu();
+                                                void handleSignOut();
+                                            }}
+                                            className={cn(
+                                                'w-full px-3 py-2.5 flex items-center gap-2 rounded-xl text-left text-sm font-medium',
+                                                'text-gray-800 dark:text-gray-100',
+                                                'hover:bg-black/5 dark:hover:bg-white/10',
+                                                'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60'
+                                            )}
+                                        >
+                                            <LogOut size={16} className="text-gray-500 dark:text-gray-400" />
+                                            <span className="flex-1">Sign out</span>
+                                        </button>
+                                    )}
 
                                     <div className="my-1 h-px bg-black/10 dark:bg-white/10" />
 
