@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Clock, FileText, ListTodo } from 'lucide-react';
+import { Check, Clock, FileText, ListTodo, Paperclip } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 import { SubtaskList } from './SubtaskList';
 import { Notes } from './Notes';
 import { SnoozePanel } from './SnoozePanel';
+import { Attachments } from './Attachments';
 import type { Task, TaskId } from '../types';
 import { useToastStore } from '../store/useToastStore';
 
@@ -110,6 +111,7 @@ function ActiveTaskCard({ taskId }: { taskId: TaskId }) {
     const deleteTask = useStore((state) => state.deleteTask);
     const toggleSubtasks = useStore((state) => state.toggleSubtasks);
     const toggleNotes = useStore((state) => state.toggleNotes);
+    const toggleAttachments = useStore((state) => state.toggleAttachments);
     const pushToast = useToastStore((state) => state.pushToast);
 
     const [isEditing, setIsEditing] = useState(false);
@@ -131,6 +133,10 @@ function ActiveTaskCard({ taskId }: { taskId: TaskId }) {
     }, []);
 
     if (!task) return null;
+
+    const activeAttachmentsCount = task.attachments.reduce((count, att) => {
+        return typeof att.removedAt === 'number' ? count : count + 1;
+    }, 0);
 
     const handleSave = () => {
         if (editTitle.trim()) {
@@ -289,6 +295,21 @@ function ActiveTaskCard({ taskId }: { taskId: TaskId }) {
 	                        >
 	                            <FileText size={20} />
 	                        </button>
+                            <button
+                                onClick={() => toggleAttachments(task.id)}
+                                className={cn(
+                                    "p-2 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium",
+                                    task.ui.attachmentsOpen
+                                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+                                        : "text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                )}
+                                title="Attachments"
+                                aria-label={task.ui.attachmentsOpen ? "Hide attachments" : "Show attachments"}
+                                aria-pressed={task.ui.attachmentsOpen}
+                            >
+                                <Paperclip size={20} />
+                                {activeAttachmentsCount > 0 && <span>{activeAttachmentsCount}</span>}
+                            </button>
 	                    </div>
 
 
@@ -297,6 +318,7 @@ function ActiveTaskCard({ taskId }: { taskId: TaskId }) {
                     <div className="w-full space-y-4">
                         {task.ui.subtasksOpen && <SubtaskList taskId={task.id} />}
                         {task.ui.notesOpen && <Notes key={`${task.id}:${task.notesMd}`} taskId={task.id} />}
+                        {task.ui.attachmentsOpen && <Attachments taskId={task.id} />}
                     </div>
                 </div>
 

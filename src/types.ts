@@ -1,4 +1,15 @@
 export type TaskId = string;
+export type AttachmentId = string;
+
+export interface TaskAttachment {
+    id: AttachmentId;
+    name: string;
+    mimeType: string;
+    size: number;
+    createdAt: number;
+    removedAt?: number;
+    cloudPath?: string;
+}
 
 export interface Subtask {
     id: string;
@@ -11,6 +22,7 @@ export interface Subtask {
 export interface TaskUIState {
     subtasksOpen: boolean;
     notesOpen: boolean;
+    attachmentsOpen: boolean;
     showCompletedSubtasks?: boolean;
 }
 
@@ -21,6 +33,7 @@ export interface Task {
     updatedAt: number;
     doneAt?: number;
     restoredAt?: number;
+    attachments: TaskAttachment[];
     subtasks: Subtask[];
     notesMd: string;
     ui: TaskUIState;

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { temporal } from 'zundo';
-import type { AppState, TaskId, Task } from '../types';
+import type { AppState, AttachmentId, TaskAttachment, TaskId, Task } from '../types';
 import { createDebouncedLocalStorage, STORAGE_KEY } from './storage';
 
 function nextUpdatedAt(prev: number, nowMs: number) {
@@ -76,6 +76,12 @@ interface AppActions {
     toggleNotes: (taskId: TaskId) => void;
     updateNotes: (taskId: TaskId, markdown: string) => void;
 
+    // Attachments
+    toggleAttachments: (taskId: TaskId) => void;
+    addAttachment: (taskId: TaskId, attachment: TaskAttachment) => void;
+    removeAttachment: (taskId: TaskId, attachmentId: AttachmentId) => void;
+    setAttachmentCloudPath: (taskId: TaskId, attachmentId: AttachmentId, cloudPath: string) => void;
+
     // System
     tick: () => number; // Check snoozed tasks; returns number of tasks moved into Wake Queue
     clearHistory: () => void;
@@ -130,9 +136,10 @@ export const useStore = create<Store>()(
                         title: title.trim(),
                         createdAt: Date.now(),
                         updatedAt: Date.now(),
+                        attachments: [],
                         subtasks: [],
                         notesMd: '',
-                        ui: { subtasksOpen: false, notesOpen: false, showCompletedSubtasks: false },
+                        ui: { subtasksOpen: false, notesOpen: false, attachmentsOpen: false, showCompletedSubtasks: false },
                     };
 
                     set((state) => {
@@ -860,6 +867,87 @@ export const useStore = create<Store>()(
                     });
                 },
 
+                toggleAttachments: (taskId) => {
+                    set((state) => {
+                        const task = state.tasks[taskId];
+                        if (!task) return state;
+                        return {
+                            tasks: {
+                                ...state.tasks,
+                                [taskId]: {
+                                    ...task,
+                                    ui: { ...task.ui, attachmentsOpen: !task.ui.attachmentsOpen }
+                                }
+                            }
+                        };
+                    });
+                },
+
+                addAttachment: (taskId, attachment) => {
+                    set((state) => {
+                        const task = state.tasks[taskId];
+                        if (!task) return state;
+                        if (task.attachments.some((x) => x.id === attachment.id)) return state;
+
+                        const now = Date.now();
+                        const updatedAt = nextUpdatedAt(task.updatedAt, Math.max(now, attachment.createdAt));
+                        return {
+                            tasks: {
+                                ...state.tasks,
+                                [taskId]: { ...task, attachments: [...task.attachments, attachment], updatedAt },
+                            }
+                        };
+                    });
+                },
+
+                removeAttachment: (taskId, attachmentId) => {
+                    set((state) => {
+                        const task = state.tasks[taskId];
+                        if (!task) return state;
+                        const idx = task.attachments.findIndex((x) => x.id === attachmentId);
+                        if (idx < 0) return state;
+
+                        const existing = task.attachments[idx];
+                        if (typeof existing.removedAt === 'number') return state;
+
+                        const now = Date.now();
+                        const updatedAt = nextUpdatedAt(task.updatedAt, now);
+                        const nextAttachments = task.attachments.slice();
+                        nextAttachments[idx] = { ...existing, removedAt: updatedAt };
+
+                        return {
+                            tasks: {
+                                ...state.tasks,
+                                [taskId]: { ...task, attachments: nextAttachments, updatedAt },
+                            }
+                        };
+                    });
+                },
+
+                setAttachmentCloudPath: (taskId, attachmentId, cloudPath) => {
+                    set((state) => {
+                        const task = state.tasks[taskId];
+                        if (!task) return state;
+                        const idx = task.attachments.findIndex((x) => x.id === attachmentId);
+                        if (idx < 0) return state;
+
+                        const existing = task.attachments[idx];
+                        if (existing.cloudPath === cloudPath) return state;
+
+                        const now = Date.now();
+                        const updatedAt = nextUpdatedAt(task.updatedAt, now);
+                        const nextAttachments = task.attachments.slice();
+                        nextAttachments[idx] = { ...existing, cloudPath };
+
+                        return {
+                            tasks: {
+                                ...state.tasks,
+                                [taskId]: { ...task, attachments: nextAttachments, updatedAt },
+                            }
+                        };
+                    });
+                },
+
                 tick: () => {
                     if (get().snoozedIds.length === 0) return 0;
                     let enqueuedCount = 0;
@@ -1017,7 +1105,7 @@ export const useStore = create<Store>()(
             },
             {
                 name: STORAGE_KEY,
-                version: 3,
+                version: 4,
                 storage: createJSONStorage(() => createDebouncedLocalStorage()),
                 migrate: (persisted, persistedVersion) => {
                     if (!isRecord(persisted)) return initialAppState;
@@ -1064,11 +1152,54 @@ export const useStore = create<Store>()(
                         if (!isRecord(task)) return;
 
                         if (!isRecord(task.ui)) {
-                            task.ui = { subtasksOpen: false, notesOpen: false, showCompletedSubtasks: false };
+                            task.ui = { subtasksOpen: false, notesOpen: false, attachmentsOpen: false, showCompletedSubtasks: false };
                         } else {
                             if (typeof task.ui.subtasksOpen !== 'boolean') task.ui.subtasksOpen = false;
                             if (typeof task.ui.notesOpen !== 'boolean') task.ui.notesOpen = false;
+                            if (typeof task.ui.attachmentsOpen !== 'boolean') task.ui.attachmentsOpen = false;
                             if (typeof task.ui.showCompletedSubtasks !== 'boolean') task.ui.showCompletedSubtasks = false;
+                        }
+
+                        if (!Array.isArray(task.attachments)) {
+                            task.attachments = [];
+                        } else {
+                            const seen = new Set<string>();
+                            const normalized: unknown[] = [];
+                            task.attachments.forEach((att) => {
+                                if (!isRecord(att)) return;
+
+                                const id = typeof att.id === 'string' && att.id.trim().length > 0 ? att.id.trim() : crypto.randomUUID();
+                                if (seen.has(id)) return;
+                                seen.add(id);
+
+                                const name = typeof att.name === 'string' ? att.name : '';
+                                const mimeType = typeof att.mimeType === 'string' ? att.mimeType : 'application/octet-stream';
+                                const size =
+                                    typeof att.size === 'number' && Number.isFinite(att.size) && att.size >= 0
+                                        ? Math.floor(att.size)
+                                        : 0;
+                                const createdAt =
+                                    typeof att.createdAt === 'number' && Number.isFinite(att.createdAt)
+                                        ? att.createdAt
+                                        : typeof task.createdAt === 'number' && Number.isFinite(task.createdAt)
+                                            ? task.createdAt
+                                            : Date.now();
+                                const removedAt =
+                                    typeof att.removedAt === 'number' && Number.isFinite(att.removedAt) ? att.removedAt : undefined;
+                                const cloudPath = typeof att.cloudPath === 'string' ? att.cloudPath.trim() : '';
+
+                                const normalizedAtt: Record<string, unknown> = {
+                                    id,
+                                    name,
+                                    mimeType,
+                                    size,
+                                    createdAt,
+                                };
+                                if (typeof removedAt === 'number') normalizedAtt.removedAt = removedAt;
+                                if (cloudPath) normalizedAtt.cloudPath = cloudPath;
+                                normalized.push(normalizedAtt);
+                            });
+                            task.attachments = normalized;
                         }
 
                         if (typeof task.snoozeUntil !== 'number' || !Number.isFinite(task.snoozeUntil)) {

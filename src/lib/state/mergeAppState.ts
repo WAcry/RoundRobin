@@ -1,4 +1,4 @@
-import type { AppState, Task, TaskId } from '../../types';
+import type { AppState, Task, TaskAttachment, TaskId } from '../../types';
 
 function orderKey(state: Pick<AppState, 'updatedAt' | 'rev' | 'clientId'>) {
   return { updatedAt: state.updatedAt, rev: state.rev, clientId: state.clientId };
@@ -34,6 +34,57 @@ function isCompleted(task: Pick<Task, 'doneAt' | 'restoredAt'>): boolean {
   return doneAt > restoredAt;
 }
 
+function maxAttachmentClock(attachments: TaskAttachment[]): number {
+  let max = -1;
+  attachments.forEach((att) => {
+    max = Math.max(max, att.createdAt);
+    if (typeof att.removedAt === 'number') max = Math.max(max, att.removedAt);
+  });
+  return max;
+}
+
+function mergeAttachments(a: TaskAttachment[] | undefined, b: TaskAttachment[] | undefined): TaskAttachment[] {
+  const out = new Map<string, TaskAttachment>();
+
+  const mergeOne = (att: TaskAttachment) => {
+    const existing = out.get(att.id);
+    if (!existing) {
+      out.set(att.id, { ...att });
+      return;
+    }
+
+    const pickCloudPath = (x: string | undefined, y: string | undefined) => {
+      if (x && y) return x === y ? x : x.localeCompare(y) >= 0 ? x : y;
+      return x || y;
+    };
+
+    const name = existing.name && existing.name.trim().length > 0 ? existing.name : att.name;
+    const mimeType =
+      existing.mimeType && existing.mimeType !== 'application/octet-stream' ? existing.mimeType : att.mimeType;
+    const createdAt = Math.min(existing.createdAt, att.createdAt);
+    const size = Math.max(existing.size, att.size);
+    const removedAt = maxOptionalNumber(existing.removedAt, att.removedAt);
+    const cloudPath = pickCloudPath(existing.cloudPath, att.cloudPath);
+
+    out.set(att.id, {
+      ...existing,
+      name,
+      mimeType,
+      createdAt,
+      size,
+      removedAt,
+      cloudPath,
+    });
+  };
+
+  (a ?? []).forEach(mergeOne);
+  (b ?? []).forEach(mergeOne);
+
+  const merged = Array.from(out.values());
+  merged.sort((x, y) => x.createdAt - y.createdAt || x.id.localeCompare(y.id));
+  return merged;
+}
+
 function uniqueSortedIds(ids: Iterable<TaskId>): TaskId[] {
   return Array.from(new Set(ids)).sort();
 }
@@ -67,9 +118,12 @@ export function mergeAppState(a: AppState, b: AppState): AppState {
     const createdAt = taskA && taskB ? Math.min(taskA.createdAt, taskB.createdAt) : base.createdAt;
     const doneAt = maxOptionalNumber(taskA?.doneAt, taskB?.doneAt);
     const restoredAt = maxOptionalNumber(taskA?.restoredAt, taskB?.restoredAt);
+    const attachments = taskA && taskB ? mergeAttachments(taskA.attachments, taskB.attachments) : base.attachments;
+
+    const attachmentsClock = maxAttachmentClock(attachments);
 
     // Ensure the merged task carries forward status clock updates.
-    const nextUpdatedAt = Math.max(base.updatedAt, doneAt ?? -1, restoredAt ?? -1);
+    const nextUpdatedAt = Math.max(base.updatedAt, doneAt ?? -1, restoredAt ?? -1, attachmentsClock);
 
     mergedTasks[id] = {
       ...base,
@@ -78,6 +132,7 @@ export function mergeAppState(a: AppState, b: AppState): AppState {
       updatedAt: nextUpdatedAt,
       doneAt,
       restoredAt,
+      attachments,
     };
   });
 
@@ -211,13 +266,32 @@ export function mergeRemoteIntoLocalState(local: AppState, remote: AppState): Ap
 
     const doneAt = maxOptionalNumber(localTask.doneAt, remoteTask.doneAt);
     const restoredAt = maxOptionalNumber(localTask.restoredAt, remoteTask.restoredAt);
-    if (doneAt === localTask.doneAt && restoredAt === localTask.restoredAt) return;
+    const attachments = mergeAttachments(localTask.attachments, remoteTask.attachments);
+
+    const statusChanged = doneAt !== localTask.doneAt || restoredAt !== localTask.restoredAt;
+    const attachmentsChanged = attachments.length !== localTask.attachments.length ||
+      attachments.some((att, idx) => {
+        const prev = localTask.attachments[idx];
+        if (!prev) return true;
+        return (
+          att.id !== prev.id ||
+          att.name !== prev.name ||
+          att.mimeType !== prev.mimeType ||
+          att.size !== prev.size ||
+          att.createdAt !== prev.createdAt ||
+          att.removedAt !== prev.removedAt ||
+          att.cloudPath !== prev.cloudPath
+        );
+      });
+
+    if (!statusChanged && !attachmentsChanged) return;
 
     mergedTasks[taskId] = {
       ...localTask,
       doneAt,
       restoredAt,
-      updatedAt: Math.max(localTask.updatedAt, doneAt ?? -1, restoredAt ?? -1),
+      attachments,
+      updatedAt: Math.max(localTask.updatedAt, doneAt ?? -1, restoredAt ?? -1, maxAttachmentClock(attachments)),
     };
   });
 

@@ -1,6 +1,6 @@
 import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import type { AppState } from '../types';
+import type { AppState, TaskAttachment } from '../types';
 import { isEditableTarget } from './dom';
 import { normalizeAppState } from './state/normalizeAppState';
 import { mergeRemoteIntoLocalState } from './state/mergeAppState';
@@ -94,13 +94,35 @@ export function startCloudSync(uid: string, options?: { debounceMs?: number }) {
       lastRemoteState ? mergeRemoteIntoLocalState(localSnapshot, lastRemoteState) : localSnapshot;
 
     const isEditing = isEditableTarget(document.activeElement) || hasPendingPersistedState();
+    const attachmentsEqual = (a: TaskAttachment[], b: TaskAttachment[]) => {
+      if (a.length !== b.length) return false;
+      const map = new Map<string, TaskAttachment>();
+      a.forEach((att) => map.set(att.id, att));
+      for (const att of b) {
+        const existing = map.get(att.id);
+        if (!existing) return false;
+        if (
+          existing.name !== att.name ||
+          existing.mimeType !== att.mimeType ||
+          existing.size !== att.size ||
+          existing.createdAt !== att.createdAt ||
+          existing.removedAt !== att.removedAt ||
+          existing.cloudPath !== att.cloudPath
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+
     const tasksChanged =
       Object.keys(localSnapshot.tasks).length !== Object.keys(mergedSnapshot.tasks).length ||
       Object.keys(mergedSnapshot.tasks).some((id) => {
         const localTask = localSnapshot.tasks[id];
         const mergedTask = mergedSnapshot.tasks[id];
         if (!localTask) return true;
-        return localTask.doneAt !== mergedTask.doneAt || localTask.restoredAt !== mergedTask.restoredAt;
+        if (localTask.doneAt !== mergedTask.doneAt || localTask.restoredAt !== mergedTask.restoredAt) return true;
+        return !attachmentsEqual(localTask.attachments, mergedTask.attachments);
       });
 
     const arraysEqual = (a: string[], b: string[]) =>
@@ -212,7 +234,7 @@ export function startCloudSync(uid: string, options?: { debounceMs?: number }) {
       // incomingRev > localRev
       const shouldRefresh = maybeConfirmReplaceLocal();
       if (!shouldRefresh) {
-        // Keep local for now. All outbound writes are merged to preserve cloud deletions/completions.
+        // Keep local for now. Outbound writes are merged to preserve remote deletions/completions/attachments.
         return;
       }
 

@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { cn } from '../lib/utils';
 import { useStore } from '../store/useStore';
 import type { TaskId } from '../types';
+import { Attachments } from './Attachments';
 import { Notes } from './Notes';
 import { SubtaskList } from './SubtaskList';
 
@@ -70,7 +71,7 @@ export function TaskEditorModal({ taskId, isOpen, onClose }: TaskEditorModalProp
                             <div className="px-6 pt-5 pb-4 flex items-center justify-between bg-white dark:bg-gray-900">
                                 <div className="min-w-0">
                                     <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">Edit</h3>
-                                    <p className="text-xs text-gray-400 mt-0.5 truncate">Update title, subtasks, and notes.</p>
+                                    <p className="text-xs text-gray-400 mt-0.5 truncate">Update title, subtasks, notes, and attachments.</p>
                                 </div>
                                 <button
                                     onClick={onClose}
@@ -114,6 +115,10 @@ export function TaskEditorModal({ taskId, isOpen, onClose }: TaskEditorModalProp
 
                                 <div className="mt-4">
                                     <Notes taskId={taskId} />
+                                </div>
+
+                                <div className="mt-4">
+                                    <Attachments taskId={taskId} />
                                 </div>
                             </div>
                         </div>

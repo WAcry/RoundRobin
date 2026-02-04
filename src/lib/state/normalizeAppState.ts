@@ -1,4 +1,4 @@
-import type { AppState, Task, TaskId } from '../../types';
+import type { AppState, Task, TaskAttachment, TaskId } from '../../types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -37,6 +37,39 @@ export function normalizeAppState(raw: unknown): AppState {
     const doneAt = typeof value.doneAt === 'number' ? value.doneAt : undefined;
     const restoredAt = typeof value.restoredAt === 'number' ? value.restoredAt : undefined;
 
+    const attachmentsRaw = Array.isArray(value.attachments) ? value.attachments : [];
+    const attachments: TaskAttachment[] = [];
+    const seenAttachments = new Set<string>();
+    attachmentsRaw.forEach((att) => {
+      if (!isRecord(att)) return;
+
+      const attId = typeof att.id === 'string' && att.id.trim().length > 0 ? att.id.trim() : crypto.randomUUID();
+      if (seenAttachments.has(attId)) return;
+      seenAttachments.add(attId);
+
+      const name = typeof att.name === 'string' ? att.name : '';
+      const mimeType = typeof att.mimeType === 'string' ? att.mimeType : 'application/octet-stream';
+      const size =
+        typeof att.size === 'number' && Number.isFinite(att.size) && att.size >= 0 ? Math.floor(att.size) : 0;
+      const createdAt =
+        typeof att.createdAt === 'number' && Number.isFinite(att.createdAt) ? att.createdAt : now;
+      const removedAt =
+        typeof att.removedAt === 'number' && Number.isFinite(att.removedAt) ? att.removedAt : undefined;
+      const cloudPath = typeof att.cloudPath === 'string' ? att.cloudPath.trim() : '';
+
+      const normalizedAtt: TaskAttachment = {
+        id: attId,
+        name: name || 'Attachment',
+        mimeType,
+        size,
+        createdAt,
+        removedAt,
+        cloudPath: cloudPath || undefined,
+      };
+
+      attachments.push(normalizedAtt);
+    });
+
     const subtasksRaw = Array.isArray(value.subtasks) ? value.subtasks : [];
     const subtasks = subtasksRaw.map((st, idx) => {
       if (!isRecord(st)) throw new Error(`Invalid subtask: ${id}[${idx}]`);
@@ -53,6 +86,7 @@ export function normalizeAppState(raw: unknown): AppState {
     const ui = {
       subtasksOpen: typeof uiRaw.subtasksOpen === 'boolean' ? uiRaw.subtasksOpen : false,
       notesOpen: typeof uiRaw.notesOpen === 'boolean' ? uiRaw.notesOpen : false,
+      attachmentsOpen: typeof uiRaw.attachmentsOpen === 'boolean' ? uiRaw.attachmentsOpen : false,
       showCompletedSubtasks: typeof uiRaw.showCompletedSubtasks === 'boolean' ? uiRaw.showCompletedSubtasks : false,
     };
 
@@ -67,6 +101,7 @@ export function normalizeAppState(raw: unknown): AppState {
       updatedAt,
       doneAt,
       restoredAt,
+      attachments,
       subtasks,
       notesMd,
       ui,
