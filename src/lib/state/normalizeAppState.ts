@@ -35,6 +35,7 @@ export function normalizeAppState(raw: unknown): AppState {
     const createdAt = typeof value.createdAt === 'number' ? value.createdAt : now;
     const updatedAt = typeof value.updatedAt === 'number' ? value.updatedAt : createdAt;
     const doneAt = typeof value.doneAt === 'number' ? value.doneAt : undefined;
+    const restoredAt = typeof value.restoredAt === 'number' ? value.restoredAt : undefined;
 
     const subtasksRaw = Array.isArray(value.subtasks) ? value.subtasks : [];
     const subtasks = subtasksRaw.map((st, idx) => {
@@ -65,12 +66,23 @@ export function normalizeAppState(raw: unknown): AppState {
       createdAt,
       updatedAt,
       doneAt,
+      restoredAt,
       subtasks,
       notesMd,
       ui,
       snoozeUntil,
       snoozeSeq,
     };
+  });
+
+  const deletedIds = uniqueIds(
+    Array.isArray(candidate.deletedIds) && candidate.deletedIds.every((x) => typeof x === 'string')
+      ? (candidate.deletedIds as TaskId[])
+      : []
+  ).sort();
+
+  deletedIds.forEach((id) => {
+    delete normalizedTasks[id];
   });
 
   const allIds = new Set<TaskId>(Object.keys(normalizedTasks));
@@ -149,6 +161,7 @@ export function normalizeAppState(raw: unknown): AppState {
     readyQueue,
     snoozedIds,
     completedIds,
+    deletedIds,
     tasks: normalizedTasks,
     nextSnoozeSeq,
   };

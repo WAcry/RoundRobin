@@ -10,6 +10,8 @@ import { ToastHost } from './components/ToastHost';
 import type { AppState } from './types';
 import { isEditableTarget } from './lib/dom';
 import { startFirebaseBootstrap } from './lib/firebaseBootstrap';
+import { mergeRemoteIntoLocalState } from './lib/state/mergeAppState';
+import { normalizeAppState } from './lib/state/normalizeAppState';
 import {
   discardPendingPersistedState,
   flushPersistedState,
@@ -22,17 +24,11 @@ import { QueueBar } from './components/QueueBar';
 import { useToastStore } from './store/useToastStore';
 import { HelpFab } from './components/HelpFab';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
 function parsePersistedAppState(raw: string | null): AppState | null {
   if (!raw) return null;
   try {
     const root = JSON.parse(raw) as unknown;
-    if (!isRecord(root)) return null;
-    if (!isRecord(root.state)) return null;
-    return root.state as unknown as AppState;
+    return normalizeAppState(root);
   } catch {
     return null;
   }
@@ -128,15 +124,17 @@ function App() {
       const isEditing = isEditableTarget(document.activeElement) || hasPendingPersistedState();
       if (isEditing) {
         const shouldRefresh = window.confirm(
-          'Detected updates in another tab. Refresh now?\n\nPress Cancel to keep your version (this will overwrite the other tab).'
+          'Detected updates in another tab. Refresh now?\n\nPress Cancel to keep editing (updates will be preserved).'
         );
 
         if (!shouldRefresh) {
           discardPendingPersistedState();
           resumePersistedWrites();
 
-          const meta = getNextWriteMeta(useStore.getState());
-          useStore.setState(meta, false);
+          const current = useStore.getState();
+          const merged = mergeRemoteIntoLocalState(current, incoming);
+          const meta = getNextWriteMeta(current);
+          applyExternalState({ ...merged, ...meta });
           flushPersistedState();
           return;
         }

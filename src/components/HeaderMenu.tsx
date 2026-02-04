@@ -137,6 +137,7 @@ export function HeaderMenu({ snoozedCount, onOpenDeferred, onOpenHistory, onOpen
                 readyQueue: state.readyQueue,
                 snoozedIds: state.snoozedIds,
                 completedIds: state.completedIds,
+                deletedIds: state.deletedIds,
                 tasks: state.tasks,
                 nextSnoozeSeq: state.nextSnoozeSeq,
             } satisfies AppState,

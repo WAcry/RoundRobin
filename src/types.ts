@@ -20,6 +20,7 @@ export interface Task {
     createdAt: number;
     updatedAt: number;
     doneAt?: number;
+    restoredAt?: number;
     subtasks: Subtask[];
     notesMd: string;
     ui: TaskUIState;
@@ -37,6 +38,7 @@ export interface AppState {
     readyQueue: TaskId[];
     snoozedIds: TaskId[];
     completedIds: TaskId[];
+    deletedIds: TaskId[];
     tasks: Record<TaskId, Task>;
     nextSnoozeSeq: number;
 }

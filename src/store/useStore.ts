@@ -94,6 +94,7 @@ const initialAppState: AppState = {
     readyQueue: [],
     snoozedIds: [],
     completedIds: [],
+    deletedIds: [],
     tasks: {},
     nextSnoozeSeq: 1,
 };
@@ -164,7 +165,7 @@ export const useStore = create<Store>()(
                         const updatedTasks = currentTask
                             ? {
                                 ...tasks,
-                                [currentTaskId]: { ...currentTask, doneAt: updatedAt, updatedAt },
+                                [currentTaskId]: { ...currentTask, doneAt: updatedAt, restoredAt: undefined, updatedAt },
                             }
                             : tasks;
 
@@ -196,6 +197,7 @@ export const useStore = create<Store>()(
                             ...task,
                             doneAt: updatedAt,
                             updatedAt,
+                            restoredAt: undefined,
                             snoozeUntil: undefined,
                             snoozeSeq: undefined,
                         };
@@ -709,19 +711,30 @@ export const useStore = create<Store>()(
 
                 deleteTask: () => {
                     set((state) => {
-                        const { currentTaskId, wokenQueue, readyQueue, tasks } = state;
+                        const { currentTaskId, wokenQueue, readyQueue, snoozedIds, completedIds, deletedIds, tasks } = state;
                         if (!currentTaskId) return state;
 
                         // Logic 5.5: Remove from system completely (but recoverable via undo)
                         const newTasks = { ...tasks };
                         delete newTasks[currentTaskId];
 
-                        const nextPick = takeNextTaskId(wokenQueue, readyQueue);
+                        const nextWokenQueue = wokenQueue.filter((id) => id !== currentTaskId);
+                        const nextReadyQueue = readyQueue.filter((id) => id !== currentTaskId);
+                        const nextSnoozedIds = snoozedIds.filter((id) => id !== currentTaskId);
+                        const nextCompletedIds = completedIds.filter((id) => id !== currentTaskId);
+                        const nextDeletedIds = (
+                            deletedIds.includes(currentTaskId) ? deletedIds : [...deletedIds, currentTaskId]
+                        ).slice().sort();
+
+                        const nextPick = takeNextTaskId(nextWokenQueue, nextReadyQueue);
 
                         return {
                             currentTaskId: nextPick.nextId,
                             wokenQueue: nextPick.wokenQueue,
                             readyQueue: nextPick.readyQueue,
+                            snoozedIds: nextSnoozedIds,
+                            completedIds: nextCompletedIds,
+                            deletedIds: nextDeletedIds,
                             tasks: newTasks,
                         };
                     });
@@ -943,6 +956,7 @@ export const useStore = create<Store>()(
                         const { completedIds, wokenQueue, readyQueue, currentTaskId, tasks } = state;
                         if (!completedIds.includes(id)) return state;
 
+                        const now = Date.now();
                         const newCompletedIds = completedIds.filter(cid => cid !== id);
                         let newReadyQueue = [...readyQueue, id];
 
@@ -957,7 +971,10 @@ export const useStore = create<Store>()(
                         }
 
                         const task = tasks[id];
-                        const updatedTasks = task ? { ...tasks, [id]: { ...task, doneAt: undefined } } : tasks;
+                        const restoredAt = task ? nextUpdatedAt(task.updatedAt, now) : now;
+                        const updatedTasks = task
+                            ? { ...tasks, [id]: { ...task, restoredAt, updatedAt: restoredAt } }
+                            : tasks;
 
                         return {
                             completedIds: newCompletedIds,
@@ -971,7 +988,7 @@ export const useStore = create<Store>()(
 
                 clearHistory: () => {
                     set((state) => {
-                        const { completedIds, tasks, currentTaskId, wokenQueue, readyQueue, snoozedIds } = state;
+                        const { completedIds, deletedIds, tasks, currentTaskId, wokenQueue, readyQueue, snoozedIds } = state;
                         if (completedIds.length === 0) return state;
 
                         const referencedIds = new Set<TaskId>();
@@ -981,20 +998,26 @@ export const useStore = create<Store>()(
                         snoozedIds.forEach((id) => referencedIds.add(id));
 
                         const updatedTasks = { ...tasks };
+                        const deletedIdSet = new Set(deletedIds);
+                        const nextDeletedIds = [...deletedIds];
                         completedIds.forEach((id) => {
                             if (!referencedIds.has(id)) {
                                 delete updatedTasks[id];
+                                if (!deletedIdSet.has(id)) {
+                                    deletedIdSet.add(id);
+                                    nextDeletedIds.push(id);
+                                }
                             }
                         });
 
-                        return { completedIds: [], tasks: updatedTasks };
+                        return { completedIds: [], deletedIds: nextDeletedIds.slice().sort(), tasks: updatedTasks };
                     });
                 }
                 };
             },
             {
                 name: STORAGE_KEY,
-                version: 2,
+                version: 3,
                 storage: createJSONStorage(() => createDebouncedLocalStorage()),
                 migrate: (persisted, persistedVersion) => {
                     if (!isRecord(persisted)) return initialAppState;
@@ -1007,6 +1030,15 @@ export const useStore = create<Store>()(
                     const clientId =
                         typeof data.clientId === 'string' && data.clientId.trim().length > 0 ? data.clientId : LOCAL_CLIENT_ID;
                     const tasksValue = isRecord(data.tasks) ? data.tasks : {};
+
+                    const deletedIds = (isStringArray(data.deletedIds) ? data.deletedIds : []).filter((id) => typeof id === 'string');
+                    const deletedIdSet = new Set<TaskId>(deletedIds);
+                    deletedIds.forEach((id) => {
+                        if (id in tasksValue) {
+                            delete tasksValue[id];
+                        }
+                    });
+
                     const allIds = new Set<TaskId>(Object.keys(tasksValue));
 
                     const uniqueExistingIds = (value: unknown): TaskId[] => {
@@ -1134,15 +1166,16 @@ export const useStore = create<Store>()(
                         readyQueue,
                         snoozedIds,
                         completedIds,
+                        deletedIds: Array.from(deletedIdSet).sort(),
                         tasks: tasksValue as Record<TaskId, Task>,
                         nextSnoozeSeq,
                     };
                 },
                 partialize: (state) => {
                     // Only persist data, not actions
-                    const { rev, updatedAt, clientId, version, currentTaskId, wokenQueue, readyQueue, snoozedIds, completedIds, tasks, nextSnoozeSeq } =
+                    const { rev, updatedAt, clientId, version, currentTaskId, wokenQueue, readyQueue, snoozedIds, completedIds, deletedIds, tasks, nextSnoozeSeq } =
                         state;
-                    return { rev, updatedAt, clientId, version, currentTaskId, wokenQueue, readyQueue, snoozedIds, completedIds, tasks, nextSnoozeSeq };
+                    return { rev, updatedAt, clientId, version, currentTaskId, wokenQueue, readyQueue, snoozedIds, completedIds, deletedIds, tasks, nextSnoozeSeq };
                 },
             }
         ),
