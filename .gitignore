@@ -29,3 +29,5 @@ dist-ssr
 
 # Commit lockfile even if ignored globally.
 !package-lock.json
+.idea
+.vscode
